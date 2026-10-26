@@ -77,7 +77,7 @@
   const timeFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
   const labelFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
   const $ = id => document.getElementById(id);
-  const defaults = { sessions: [], current: null, lastEnd: null, workMin: 25, breakMin: 25, wake: false };
+  const defaults = { sessions: [], current: null, lastEnd: null, workMin: 35, breakMin: 25, wake: false };
 
   const load = () => { try { return { ...defaults, ...JSON.parse(localStorage.getItem(KEY)) }; } catch { return { ...defaults }; } };
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} };
