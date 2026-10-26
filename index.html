@@ -126,7 +126,7 @@
     $('clock').textContent = fmtClock(p.elapsed);
     $('target').textContent = p.targetMin === null ? ''
       : over ? (state.current ? `${p.targetMin} min done, time for a break` : 'Break done, start when ready')
-      : `Target ${p.targetMin}:00`;
+      : `Target ${p.targetMin}:00 (change in settings below)`;
     $('toggle').textContent = state.current ? 'Stop' : 'Start';
     $('toggle').classList.toggle('working', !!state.current);
     document.body.classList.toggle('over', over);
