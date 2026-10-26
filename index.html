@@ -58,7 +58,7 @@
   </section>
 
   <section>
-    <h2>Last 7 days</h2>
+    <h2>Last 10 business days</h2>
     <ul id="history"></ul>
   </section>
 
@@ -151,11 +151,12 @@
     }
 
     const totals = totalsByDay();
-    const base = new Date(`${today}T12:00:00Z`);
+    const d = new Date(`${today}T12:00:00Z`);
     $('history').innerHTML = '';
-    for (let i = 1; i <= 7; i++) {
-      const d = new Date(base);
-      d.setUTCDate(d.getUTCDate() - i);
+    for (let shown = 0; shown < 10;) {
+      d.setUTCDate(d.getUTCDate() - 1);
+      if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
+      shown++;
       const li = document.createElement('li');
       li.innerHTML = `<span>${labelFmt.format(d)}</span><span class="muted">${fmtTotal(totals[d.toISOString().slice(0, 10)] || 0)}</span>`;
       $('history').append(li);
