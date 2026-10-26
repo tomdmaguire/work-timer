@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<title>Work Timer</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --fg: #1d1f23; --muted: #6b6f76; --card: #fff; --line: #e4e2dc;
+    --go: #2f9e5b; --stop: #d6453d; --over: #c7861a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161a; --fg: #eceae5; --muted: #9a9ea6; --card: #1d2026; --line: #2c3038; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  main { max-width: 480px; margin: 0 auto; padding: max(24px, env(safe-area-inset-top)) 16px 48px; text-align: center; }
+  #status { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  #clock { margin: 4px 0 0; font-size: 72px; font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  #target { margin: 0 0 24px; min-height: 1.4em; color: var(--muted); }
+  body.over #clock, body.over #target { color: var(--over); font-weight: 500; }
+  #toggle {
+    width: min(70vw, 260px); aspect-ratio: 1; border: 0; border-radius: 50%;
+    background: var(--go); color: #fff; font-size: 40px; font-weight: 700;
+    box-shadow: 0 10px 30px rgba(0,0,0,.18); cursor: pointer; transition: transform .1s, background .2s;
+  }
+  #toggle:active { transform: scale(.96); }
+  #toggle.working { background: var(--stop); }
+  #message { margin: 24px 0 0; min-height: 1.4em; font-size: 22px; font-weight: 600; }
+  section, details { margin-top: 28px; padding: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; text-align: left; }
+  h2 { margin: 0 0 8px; font-size: 17px; display: flex; justify-content: space-between; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  li .muted, .empty { color: var(--muted); }
+  li button { border: 0; background: none; color: var(--muted); font-size: 22px; padding: 0 6px; cursor: pointer; }
+  summary { font-weight: 600; cursor: pointer; }
+  label { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  input[type=number] { width: 80px; padding: 6px 8px; font-size: 17px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); text-align: right; }
+  input[type=checkbox] { width: 22px; height: 22px; }
+</style>
+</head>
+<body>
+<main>
+  <p id="status">Ready</p>
+  <p id="clock">00:00</p>
+  <p id="target"></p>
+  <button id="toggle">Start</button>
+  <p id="message"></p>
+
+  <section>
+    <h2>Today <span id="todayTotal"></span></h2>
+    <ul id="todayList"></ul>
+  </section>
+
+  <section>
+    <h2>Last 7 days</h2>
+    <ul id="history"></ul>
+  </section>
+
+  <details>
+    <summary>Settings</summary>
+    <label>Work target (minutes) <input id="workMin" type="number" min="1" inputmode="numeric"></label>
+    <label>Break target (minutes) <input id="breakMin" type="number" min="1" inputmode="numeric"></label>
+    <label>Keep screen on <input id="wake" type="checkbox"></label>
+  </details>
+</main>
+
+<script>
+  const KEY = 'workTimer';
+  const TZ = 'America/Los_Angeles';
+  const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const timeFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
+  const labelFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
+  const $ = id => document.getElementById(id);
+  const defaults = { sessions: [], current: null, lastEnd: null, workMin: 25, breakMin: 25, wake: false };
+
+  const load = () => { try { return { ...defaults, ...JSON.parse(localStorage.getItem(KEY)) }; } catch { return { ...defaults }; } };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} };
+  const dayKey = ms => dayFmt.format(ms);
+  const pad = n => String(n).padStart(2, '0');
+
+  const fmtClock = ms => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+    return (h ? `${h}:${pad(m)}` : pad(m)) + `:${pad(s % 60)}`;
+  };
+  const fmtDuration = ms => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+    return h ? `${h}h ${pad(m)}m` : `${m}m ${pad(s % 60)}s`;
+  };
+  const fmtTotal = ms => {
+    const m = Math.floor(ms / 60000);
+    return m >= 60 ? `${Math.floor(m / 60)}h ${pad(m % 60)}m` : `${m}m`;
+  };
+
+  let state = load();
+  let alerted = true;
+  let audio, wakeLock;
+
+  const totalsByDay = () => {
+    const totals = {};
+    for (const { start, end } of state.sessions) totals[dayKey(start)] = (totals[dayKey(start)] || 0) + end - start;
+    if (state.current) totals[dayKey(state.current)] = (totals[dayKey(state.current)] || 0) + Date.now() - state.current;
+    return totals;
+  };
+
+  const phase = () => {
+    const now = Date.now();
+    if (state.current) return { name: 'Working', elapsed: now - state.current, targetMin: state.workMin };
+    if (state.lastEnd && dayKey(state.lastEnd) === dayKey(now)) return { name: 'On break', elapsed: now - state.lastEnd, targetMin: state.breakMin };
+    return { name: 'Ready', elapsed: 0, targetMin: null };
+  };
+
+  const isOver = p => p.targetMin !== null && p.elapsed >= p.targetMin * 60000;
+
+  function tick() {
+    const p = phase();
+    const over = isOver(p);
+    $('status').textContent = p.name;
+    $('clock').textContent = fmtClock(p.elapsed);
+    $('target').textContent = p.targetMin === null ? ''
+      : over ? (state.current ? `${p.targetMin} min done, time for a break` : 'Break done, start when ready')
+      : `Target ${p.targetMin}:00`;
+    $('toggle').textContent = state.current ? 'Stop' : 'Start';
+    $('toggle').classList.toggle('working', !!state.current);
+    document.body.classList.toggle('over', over);
+    $('todayTotal').textContent = fmtTotal(totalsByDay()[dayKey(Date.now())] || 0);
+    if (over && !alerted) chime();
+    alerted = over;
+  }
+
+  function renderLists() {
+    const today = dayKey(Date.now());
+    const todays = state.sessions.filter(s => dayKey(s.start) === today).reverse();
+    $('todayList').innerHTML = todays.length ? '' : '<li class="empty">No work logged yet</li>';
+    for (const s of todays) {
+      const li = document.createElement('li');
+      li.innerHTML = `<span>${timeFmt.format(s.start)} – ${timeFmt.format(s.end)}</span><span class="muted">${fmtDuration(s.end - s.start)}</span><button aria-label="Delete">×</button>`;
+      li.querySelector('button').onclick = () => {
+        if (!confirm('Delete this chunk?')) return;
+        state.sessions = state.sessions.filter(x => x.start !== s.start);
+        save(); renderLists(); tick();
+      };
+      $('todayList').append(li);
+    }
+
+    const totals = totalsByDay();
+    const base = new Date(`${today}T12:00:00Z`);
+    $('history').innerHTML = '';
+    for (let i = 1; i <= 7; i++) {
+      const d = new Date(base);
+      d.setUTCDate(d.getUTCDate() - i);
+      const li = document.createElement('li');
+      li.innerHTML = `<span>${labelFmt.format(d)}</span><span class="muted">${fmtTotal(totals[d.toISOString().slice(0, 10)] || 0)}</span>`;
+      $('history').append(li);
+    }
+  }
+
+  function unlockAudio() {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state !== 'running') audio.resume();
+  }
+
+  function chime() {
+    navigator.vibrate?.([300, 150, 300]);
+    if (!audio) return;
+    const t0 = audio.currentTime;
+    [660, 880, 990].forEach((freq, i) => {
+      const t = t0 + i * 0.35;
+      const osc = audio.createOscillator(), gain = audio.createGain();
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.4, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(t);
+      osc.stop(t + 0.32);
+    });
+  }
+
+  async function syncWakeLock() {
+    if (state.wake && document.visibilityState === 'visible' && 'wakeLock' in navigator) {
+      if (wakeLock) return;
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.onrelease = () => { wakeLock = null; };
+      } catch {}
+    } else if (wakeLock) {
+      wakeLock.release();
+      wakeLock = null;
+    }
+  }
+
+  $('toggle').onclick = () => {
+    const now = Date.now();
+    if (state.current) {
+      state.sessions.push({ start: state.current, end: now });
+      $('message').textContent = `You worked ${fmtDuration(now - state.current)}`;
+      state.current = null;
+      state.lastEnd = now;
+    } else {
+      const p = phase();
+      $('message').textContent = p.name === 'On break' ? `Your break was ${fmtDuration(p.elapsed)}` : '';
+      state.current = now;
+    }
+    alerted = false;
+    save(); renderLists(); tick();
+  };
+
+  for (const id of ['workMin', 'breakMin']) {
+    $(id).value = state[id];
+    $(id).onchange = () => {
+      state[id] = Math.max(1, parseInt($(id).value, 10) || defaults[id]);
+      $(id).value = state[id];
+      alerted = isOver(phase());
+      save(); tick();
+    };
+  }
+
+  $('wake').checked = state.wake;
+  $('wake').onchange = () => { state.wake = $('wake').checked; save(); syncWakeLock(); };
+
+  document.addEventListener('pointerdown', unlockAudio);
+  document.addEventListener('visibilitychange', () => { syncWakeLock(); renderLists(); tick(); });
+
+  alerted = isOver(phase());
+  renderLists();
+  tick();
+  syncWakeLock();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
