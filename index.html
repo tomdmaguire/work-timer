@@ -42,6 +42,9 @@
   label { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
   input[type=number] { width: 80px; padding: 6px 8px; font-size: 17px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); text-align: right; }
   input[type=checkbox] { width: 22px; height: 22px; }
+  #addForm { display: flex; gap: 8px; margin-top: 12px; }
+  #addMin { flex: 1; width: auto; text-align: left; }
+  #addForm button { padding: 6px 14px; font-size: 17px; font-weight: 600; border: 0; border-radius: 8px; background: var(--go); color: #fff; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -55,6 +58,10 @@
   <section>
     <h2>Today <span id="todayTotal"></span></h2>
     <ul id="todayList"></ul>
+    <form id="addForm">
+      <input id="addMin" type="number" min="1" inputmode="numeric" placeholder="Minutes">
+      <button>Add time</button>
+    </form>
   </section>
 
   <section>
@@ -141,7 +148,8 @@
     $('todayList').innerHTML = todays.length ? '' : '<li class="empty">No work logged yet</li>';
     for (const s of todays) {
       const li = document.createElement('li');
-      li.innerHTML = `<span>${timeFmt.format(s.start)} – ${timeFmt.format(s.end)}</span><span class="muted">${fmtDuration(s.end - s.start)}</span><button aria-label="Delete">×</button>`;
+      const label = s.manual ? 'Added manually' : `${timeFmt.format(s.start)} – ${timeFmt.format(s.end)}`;
+      li.innerHTML = `<span>${label}</span><span class="muted">${fmtDuration(s.end - s.start)}</span><button aria-label="Delete">×</button>`;
       li.querySelector('button').onclick = () => {
         if (!confirm('Delete this chunk?')) return;
         state.sessions = state.sessions.filter(x => x.start !== s.start);
@@ -211,6 +219,16 @@
       state.current = now;
     }
     alerted = false;
+    save(); renderLists(); tick();
+  };
+
+  $('addForm').onsubmit = e => {
+    e.preventDefault();
+    const min = parseInt($('addMin').value, 10);
+    if (!(min > 0)) return;
+    const now = Date.now();
+    state.sessions.push({ start: now, end: now + min * 60000, manual: true });
+    $('addMin').value = '';
     save(); renderLists(); tick();
   };
 
