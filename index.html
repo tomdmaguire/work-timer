@@ -153,7 +153,7 @@
       li.innerHTML = `<span>${label}</span><span class="muted">${fmtDuration(s.end - s.start)}</span><button aria-label="Delete">×</button>`;
       li.querySelector('button').onclick = () => {
         if (!confirm('Delete this chunk?')) return;
-        state.sessions = state.sessions.filter(x => x.start !== s.start);
+        state.sessions = state.sessions.filter(x => x !== s);
         save(); renderLists(); tick();
       };
       $('todayList').append(li);
