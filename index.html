@@ -38,14 +38,16 @@
   li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
   li span:first-child { flex: 1; }
   li .muted, .empty { color: var(--muted); }
+  li.day { cursor: pointer; }
+  li.dayDetail { display: block; border-top: 0; padding: 0 0 12px 16px; }
   li button { border: 0; background: none; color: var(--muted); font-size: 22px; padding: 0 6px; cursor: pointer; }
   summary { font-weight: 600; cursor: pointer; }
   label { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
   input[type=number] { width: 80px; padding: 6px 8px; font-size: 17px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); text-align: right; }
   input[type=checkbox] { width: 22px; height: 22px; }
-  #addForm { display: flex; gap: 8px; margin-top: 12px; }
-  #addMin { flex: 1; width: auto; text-align: left; }
-  #addForm button { padding: 6px 14px; font-size: 17px; font-weight: 600; border: 0; border-radius: 8px; background: var(--go); color: #fff; cursor: pointer; }
+  .addForm { display: flex; gap: 8px; margin-top: 12px; }
+  .addForm input { flex: 1; width: auto; text-align: left; }
+  .addForm button { padding: 6px 14px; font-size: 17px; font-weight: 600; border: 0; border-radius: 8px; background: var(--go); color: #fff; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -59,7 +61,7 @@
   <section>
     <h2>Today <span id="todayTotal"></span></h2>
     <ul id="todayList"></ul>
-    <form id="addForm">
+    <form id="addForm" class="addForm">
       <input id="addMin" type="number" min="1" inputmode="numeric" placeholder="Minutes">
       <button>Add time</button>
     </form>
@@ -109,6 +111,7 @@
 
   let state = load();
   let alerted = true;
+  let openDay = null;
   let audio, wakeLock;
 
   const totalsByDay = () => {
@@ -143,21 +146,49 @@
     alerted = over;
   }
 
-  function renderLists() {
-    const today = dayKey(Date.now());
-    const todays = state.sessions.filter(s => dayKey(s.start) === today).reverse();
-    $('todayList').innerHTML = todays.length ? '' : '<li class="empty">No work logged yet</li>';
-    for (const s of todays) {
+  const backup = () => { try { localStorage.setItem(`${KEY}:backup`, JSON.stringify(state.sessions)); } catch {} };
+  const dayLabel = day => labelFmt.format(new Date(`${day}T12:00:00Z`));
+
+  function addMinutes(day, min) {
+    const start = day === dayKey(Date.now()) ? Date.now() : Date.parse(`${day}T12:00:00Z`);
+    state.sessions.push({ start, end: start + min * 60000, manual: true });
+    save(); renderLists(); tick();
+  }
+
+  function renderSessions(ul, day) {
+    const isToday = day === dayKey(Date.now());
+    const sessions = state.sessions.filter(s => dayKey(s.start) === day).reverse();
+    ul.innerHTML = sessions.length ? '' : `<li class="empty">${isToday ? 'No work logged yet' : 'No work logged'}</li>`;
+    for (const s of sessions) {
       const li = document.createElement('li');
       const label = s.manual ? 'Added manually' : `${timeFmt.format(s.start)} – ${timeFmt.format(s.end)}`;
-      li.innerHTML = `<span>${label}</span><span class="muted">${fmtDuration(s.end - s.start)}</span><button aria-label="Delete">×</button>`;
+      const duration = fmtDuration(s.end - s.start);
+      li.innerHTML = `<span>${label}</span><span class="muted">${duration}</span><button aria-label="Delete">×</button>`;
       li.querySelector('button').onclick = () => {
-        if (!confirm('Delete this chunk?')) return;
+        if (!confirm(isToday ? `Delete this ${duration} chunk?` : `Delete ${duration} from ${dayLabel(day)}?`)) return;
+        backup();
         state.sessions = state.sessions.filter(x => x !== s);
         save(); renderLists(); tick();
       };
-      $('todayList').append(li);
+      ul.append(li);
     }
+  }
+
+  function addForm(day) {
+    const form = document.createElement('form');
+    form.className = 'addForm';
+    form.innerHTML = '<input type="number" min="1" inputmode="numeric" placeholder="Minutes"><button>Add time</button>';
+    form.onsubmit = e => {
+      e.preventDefault();
+      const min = parseInt(form.querySelector('input').value, 10);
+      if (min > 0) addMinutes(day, min);
+    };
+    return form;
+  }
+
+  function renderLists() {
+    const today = dayKey(Date.now());
+    renderSessions($('todayList'), today);
 
     const totals = totalsByDay();
     const d = new Date(`${today}T12:00:00Z`);
@@ -166,9 +197,20 @@
       d.setUTCDate(d.getUTCDate() - 1);
       if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
       shown++;
+      const day = d.toISOString().slice(0, 10);
+      const open = openDay === day;
       const li = document.createElement('li');
-      li.innerHTML = `<span>${labelFmt.format(d)}</span><span class="muted">${fmtTotal(totals[d.toISOString().slice(0, 10)] || 0)}</span>`;
+      li.className = 'day';
+      li.innerHTML = `<span>${open ? '▾' : '▸'} ${labelFmt.format(d)}</span><span class="muted">${fmtTotal(totals[day] || 0)}</span>`;
+      li.onclick = () => { openDay = open ? null : day; renderLists(); };
       $('history').append(li);
+      if (!open) continue;
+      const detail = document.createElement('li');
+      detail.className = 'dayDetail';
+      const ul = document.createElement('ul');
+      renderSessions(ul, day);
+      detail.append(ul, addForm(day));
+      $('history').append(detail);
     }
   }
 
@@ -227,10 +269,8 @@
     e.preventDefault();
     const min = parseInt($('addMin').value, 10);
     if (!(min > 0)) return;
-    const now = Date.now();
-    state.sessions.push({ start: now, end: now + min * 60000, manual: true });
     $('addMin').value = '';
-    save(); renderLists(); tick();
+    addMinutes(dayKey(Date.now()), min);
   };
 
   for (const id of ['workMin', 'breakMin']) {
