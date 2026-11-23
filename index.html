@@ -68,7 +68,7 @@
   </section>
 
   <section>
-    <h2>Last 10 business days</h2>
+    <h2>Last 20 business days</h2>
     <ul id="history"></ul>
   </section>
 
@@ -193,7 +193,7 @@
     const totals = totalsByDay();
     const d = new Date(`${today}T12:00:00Z`);
     $('history').innerHTML = '';
-    for (let shown = 0; shown < 10;) {
+    for (let shown = 0; shown < 20;) {
       d.setUTCDate(d.getUTCDate() - 1);
       if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
       shown++;
